@@ -33,6 +33,7 @@
 (require 'url)
 (require 'url-queue)
 (require 'url-file)
+(require 'vtable)
 (require 'xdg)
 (eval-when-compile (require 'subr-x))
 
@@ -78,7 +79,7 @@ if that directory doesn't exist and the DOWNLOAD XDG user directory
 is defined, use the latter instead."
   (or (and (file-exists-p eww-default-download-directory)
            eww-default-download-directory)
-      (when-let ((dir (xdg-user-dir "DOWNLOAD")))
+      (when-let* ((dir (xdg-user-dir "DOWNLOAD")))
         (file-name-as-directory dir))
       eww-default-download-directory))
 
@@ -107,6 +108,20 @@ duplicate entries (if any) removed."
              thing-at-point-url-at-point
              eww-current-url
              eww-bookmark-urls))
+
+(defcustom eww-guess-content-type-functions
+  '(eww--html-if-doctype)
+  "List of functions used by EWW to guess the content-type of Web pages.
+These are only used when the page does not have a valid Content-Type
+header.  Functions are called in order, until one of them returns a
+non-nil value to be used as Content-Type.  The functions receive two
+arguments: an alist of page's headers, and the buffer that holds the
+complete response of the server from which the page was requested.
+If the list of the functions is exhausted without any non-nil value,
+EWW assumes content-type is \"application/octet-stream\", per RFC-9110."
+  :version "31.1"
+  :group 'eww
+  :type '(repeat function))
 
 (defcustom eww-bookmarks-directory user-emacs-directory
   "Directory where bookmark files will be stored."
@@ -229,8 +244,8 @@ determine the renaming scheme, as follows:
 
   (defun my-eww-rename-buffer ()
     (when (eq major-mode \\='eww-mode)
-      (when-let ((string (or (plist-get eww-data :title)
-                             (plist-get eww-data :url))))
+      (when-let* ((string (or (plist-get eww-data :title)
+                              (plist-get eww-data :url))))
         (format \"*%s*\" string))))
 
 The string of `title' and `url' is always truncated to the value
@@ -610,7 +625,7 @@ for the search engine used."
 
 NO-SELECT non-nil means do not make the new buffer the current buffer."
   (interactive "P")
-  (if-let ((url (or url (eww-suggested-uris))))
+  (if-let* ((url (or url (eww-suggested-uris))))
       (if (or (eq eww-browse-url-new-window-is-tab t)
               (and (eq eww-browse-url-new-window-is-tab 'tab-bar)
                    tab-bar-mode))
@@ -629,6 +644,30 @@ NO-SELECT non-nil means do not make the new buffer the current buffer."
 Currently this means either text/html or application/xhtml+xml."
   (member content-type '("text/html"
 			 "application/xhtml+xml")))
+
+(defun eww--guess-content-type (headers response-buffer)
+  "Use HEADERS and RESPONSE-BUFFER to guess the Content-Type.
+Will call each function in `eww-guess-content-type-functions', until one
+of them returns a value.  This mechanism is used only if there isn't a
+valid Content-Type header.  If none of the functions can guess, return
+\"application/octet-stream\"."
+  (save-excursion
+    (or (run-hook-with-args-until-success
+         'eww-guess-content-type-functions headers response-buffer)
+        "application/octet-stream")))
+
+(defun eww--html-if-doctype (_headers response-buffer)
+  "Return \"text/html\" if RESPONSE-BUFFER has an HTML doctype declaration.
+HEADERS is unused."
+  ;; https://html.spec.whatwg.org/multipage/syntax.html#the-doctype
+  (with-current-buffer response-buffer
+    (let ((case-fold-search t))
+      (save-excursion
+        (goto-char (point-min))
+        ;; Match basic "<!doctype html>" and also legacy variants as
+        ;; specified in link above -- being purposely lax about it.
+        (when (search-forward "<!doctype html" nil t)
+          "text/html")))))
 
 (defun eww--rename-buffer ()
   "Rename the current EWW buffer.
@@ -659,7 +698,7 @@ The renaming scheme is performed in accordance with
 	 (content-type
 	  (mail-header-parse-content-type
            (if (zerop (length (cdr (assoc "content-type" headers))))
-	       "text/plain"
+               (eww--guess-content-type headers (current-buffer))
              (cdr (assoc "content-type" headers)))))
 	 (charset (intern
 		   (downcase
@@ -709,7 +748,8 @@ The renaming scheme is performed in accordance with
 	      (and last-coding-system-used
 		   (set-buffer-file-coding-system last-coding-system-used))
               (unless shr-fill-text
-                (visual-line-mode))
+                (visual-line-mode)
+                (visual-wrap-prefix-mode))
 	      (run-hooks 'eww-after-render-hook)
               ;; Enable undo again so that undo works in text input
               ;; boxes.
@@ -1306,7 +1346,7 @@ This consults the entries in `eww-readable-urls' (which see)."
   "Check if point is within a field and toggle text conversion.
 Set `text-conversion-style' to the value `action' if it isn't
 already and point is within the prompt field, or if
-`text-conversion-style' is `nil', so as to guarantee that
+`text-conversion-style' is nil, so as to guarantee that
 the input method functions properly for the purpose of typing
 within text input fields."
   (when (and (eq major-mode 'eww-mode)
@@ -1336,6 +1376,8 @@ within text input fields."
   ;; desktop support
   (setq-local desktop-save-buffer #'eww-desktop-misc-data)
   (setq truncate-lines t)
+  ;; visual-wrap-prefix-mode support
+  (setq-local adaptive-fill-function #'shr-adaptive-fill-function)
   ;; thingatpt support
   (setq-local thing-at-point-provider-alist
               (cons '(url . eww--url-at-point)
@@ -1370,13 +1412,22 @@ within text input fields."
     (save-excursion
       (goto-char (point-min))
       (while-let ((match (text-property-search-forward
-                          'display nil (lambda (_ value) (imagep value)))))
-        (let ((image (prop-match-value match)))
-          (unless (image-property image :original-scale)
-            (setf (image-property image :original-scale)
-                  (or (image-property image :scale) 1)))
+                          'display nil
+                          (lambda (_ value)
+                            (and value (get-display-property
+                                        nil 'image nil value))))))
+        (let* ((image (cons 'image
+                            (get-display-property nil 'image nil
+                                                  (prop-match-value match))))
+               (original-scale (or (image-property image :original-scale)
+                                   (setf (image-property image :original-scale)
+                                         (or (image-property image :scale)
+                                             'default)))))
+          (when (eq original-scale 'default)
+            (setq original-scale (image-compute-scaling-factor
+                                  image-scaling-factor)))
           (setf (image-property image :scale)
-                (* (image-property image :original-scale) scaling)))))))
+                (* original-scale scaling)))))))
 
 (defun eww--url-at-point ()
   "`thing-at-point' provider function."
@@ -2018,7 +2069,7 @@ Interactively, EVENT is the value of `last-nonmenu-event'."
               (push (cons name (or (plist-get input :value) "on"))
 		    values)))
 	   ((equal (plist-get input :type) "file")
-            (when-let ((file (plist-get input :filename)))
+            (when-let* ((file (plist-get input :filename)))
               (push (list "file"
                           (cons "filedata"
                                 (with-temp-buffer
@@ -2134,7 +2185,7 @@ If EXTERNAL is double prefix, browse in new buffer."
         (eww--before-browse)
 	(plist-put eww-data :url url)
         (goto-char (point-min))
-        (if-let ((match (text-property-search-forward 'shr-target-id target #'member)))
+        (if-let* ((match (text-property-search-forward 'shr-target-id target #'member)))
             (goto-char (prop-match-beginning match))
           (goto-char (if (equal target "top")
                          (point-min)
@@ -2592,58 +2643,47 @@ see)."
 
 ;;; eww buffers list
 
+(defun eww-buffer-list ()
+  "Return a list of all live eww buffers."
+  (match-buffers '(derived-mode . eww-mode)))
+
 (defun eww-list-buffers ()
-  "Enlist eww buffers."
+  "Pop a buffer with a list of eww buffers."
   (interactive)
-  (let (buffers-info
-        (current (current-buffer)))
-    (dolist (buffer (buffer-list))
-      (with-current-buffer buffer
-        (when (derived-mode-p 'eww-mode)
-          (push (vector buffer (plist-get eww-data :title)
-                        (plist-get eww-data :url))
-                buffers-info))))
-    (unless buffers-info
-      (error "No eww buffers"))
-    (setq buffers-info (nreverse buffers-info)) ;more recent on top
-    (set-buffer (get-buffer-create "*eww buffers*"))
+  (with-current-buffer (get-buffer-create "*eww buffers*")
     (eww-buffers-mode)
-    (let ((inhibit-read-only t)
-          (domain-length 0)
-          (title-length 0)
-          url title format start)
-      (erase-buffer)
-      (dolist (buffer-info buffers-info)
-        (setq title-length (max title-length
-                                (length (elt buffer-info 1)))
-              domain-length (max domain-length
-                                 (length (elt buffer-info 2)))))
-      (setq format (format "%%-%ds %%-%ds" title-length domain-length)
-            header-line-format
-            (concat " " (format format "Title" "URL")))
-      (let ((line 0)
-            (current-buffer-line 1))
-        (dolist (buffer-info buffers-info)
-          (setq start (point)
-                title (elt buffer-info 1)
-                url (elt buffer-info 2)
-                line (1+ line))
-          (insert (format format title url))
-          (insert "\n")
-          (let ((buffer (elt buffer-info 0)))
-            (put-text-property start (1+ start) 'eww-buffer
-                               buffer)
-            (when (eq current buffer)
-              (setq current-buffer-line line))))
-        (goto-char (point-min))
-        (forward-line (1- current-buffer-line)))))
+    (eww--list-buffers-display-table))
   (pop-to-buffer "*eww buffers*"))
+
+(defun eww--list-buffers-display-table (&optional _ignore-auto _noconfirm)
+  "Display a table with the list of eww buffers.
+Will remove all buffer contents first.  The parameters IGNORE-AUTO and
+NOCONFIRM are ignored, they are for compatibility with
+`revert-buffer-function'."
+  (let ((inhibit-read-only t))
+    (erase-buffer)
+    (make-vtable
+     :columns '((:name "Title" :min-width "25%" :max-width "50%")
+                (:name "URL"))
+     :objects-function #'eww--list-buffers-get-data
+     ;; use fixed-font face
+     :face 'default)))
+
+(defun eww--list-buffers-get-data ()
+  "Return the eww-data of BUF, assumed to be a eww buffer.
+The format of the data is (title url buffer), for use in of
+`eww-buffers-mode'."
+  (mapcar (lambda (buf)
+            (let ((buf-eww-data (buffer-local-value 'eww-data buf)))
+              (list (plist-get buf-eww-data :title)
+                    (plist-get buf-eww-data :url)
+                    buf)))
+          (eww-buffer-list)))
 
 (defun eww-buffer-select ()
   "Switch to eww buffer."
   (interactive nil eww-buffers-mode)
-  (let ((buffer (get-text-property (line-beginning-position)
-                                   'eww-buffer)))
+  (let ((buffer (nth 2 (vtable-current-object))))
     (unless buffer
       (error "No buffer on current line"))
     (quit-window)
@@ -2651,8 +2691,7 @@ see)."
 
 (defun eww-buffer-show ()
   "Display buffer under point in eww buffer list."
-  (let ((buffer (get-text-property (line-beginning-position)
-                                   'eww-buffer)))
+  (let ((buffer (nth 2 (vtable-current-object))))
     (unless buffer
       (error "No buffer on current line"))
     (other-window -1)
@@ -2680,7 +2719,7 @@ see)."
   "Kill buffer from eww list."
   (interactive nil eww-buffers-mode)
   (let* ((start (line-beginning-position))
-	 (buffer (get-text-property start 'eww-buffer))
+	 (buffer (nth 2 (vtable-current-object)))
 	 (inhibit-read-only t))
     (unless buffer
       (user-error "No buffer on the current line"))
@@ -2699,10 +2738,9 @@ see)."
   :menu '("Eww Buffers"
           ["Exit" quit-window t]
           ["Select" eww-buffer-select
-           :active (get-text-property (line-beginning-position) 'eww-buffer)]
+           :active (nth 2 (vtable-current-object))]
           ["Kill" eww-buffer-kill
-           :active (get-text-property (line-beginning-position)
-                                      'eww-buffer)]))
+           :active (nth 2 (vtable-current-object))]))
 
 (define-derived-mode eww-buffers-mode special-mode "eww buffers"
   "Mode for listing buffers.
@@ -2710,7 +2748,10 @@ see)."
 \\{eww-buffers-mode-map}"
   :interactive nil
   (buffer-disable-undo)
-  (setq truncate-lines t))
+  (setq truncate-lines t
+        ;; This is set so that pressing "g" with point just below the
+        ;; table will still update the listing.
+        revert-buffer-function #'eww--list-buffers-display-table))
 
 ;;; Desktop support
 
@@ -2864,9 +2905,9 @@ these attributes is absent, the corresponding element is nil."
 If there is just one alternate link, return its URL.  If there
 are multiple alternate links, prompt for one in the minibuffer
 with completion.  If there are none, return nil."
-  (when-let ((alternates (eww--alternate-urls
-                          (plist-get eww-data :dom)
-                          (plist-get eww-data :url))))
+  (when-let* ((alternates (eww--alternate-urls
+                           (plist-get eww-data :dom)
+                           (plist-get eww-data :url))))
     (let ((url-max-width
            (seq-max (mapcar #'string-pixel-width
                             (mapcar #'car alternates))))
@@ -2910,7 +2951,7 @@ Alternate links are references that an HTML page may include to
 point to its alternative representations, such as a translated
 version or an RSS feed."
   (interactive nil eww-mode)
-  (if-let ((url (eww-read-alternate-url)))
+  (if-let* ((url (eww-read-alternate-url)))
       (progn
         (kill-new url)
         (message "Copied %s to kill ring" url))

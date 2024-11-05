@@ -63,8 +63,7 @@
 	    (append
 	     '("." "..")
 	     (tramp-fuse-remove-hidden-files
-	      (tramp-compat-directory-files
-	       (tramp-fuse-local-file-name directory))))))))
+	      (directory-files (tramp-fuse-local-file-name directory))))))))
     (if full
 	;; Massage the result.
 	(let ((local (rx
@@ -129,8 +128,8 @@
 
 (defun tramp-fuse-mount-spec (vec)
   "Return local mount spec of VEC."
-  (if-let ((host (tramp-file-name-host vec))
-	   (user (tramp-file-name-user vec)))
+  (if-let* ((host (tramp-file-name-host vec))
+	    (user (tramp-file-name-user vec)))
       (format "%s@%s:/" user host)
     (format "%s:/" host)))
 
@@ -207,7 +206,7 @@ It has the same meaning as `remote-file-name-inhibit-cache'.")
 	  (delete (tramp-file-name-unify vec) tramp-fuse-mount-points))
     ;; Give the caches a chance to expire.
     (sleep-for 1)
-    (when (tramp-compat-directory-empty-p mount-point)
+    (when (directory-empty-p mount-point)
       (delete-directory mount-point))))
 
 (defun tramp-fuse-local-file-name (filename)
@@ -234,7 +233,8 @@ It has the same meaning as `remote-file-name-inhibit-cache'.")
   "Whether fuse volumes shall be unmounted on cleanup."
   :group 'tramp
   :version "28.1"
-  :type 'boolean)
+  :type 'boolean
+  :link '(info-link :tag "Tramp manual" "(tramp) FUSE setup"))
 
 (defun tramp-fuse-cleanup (vec)
   "Cleanup fuse volume determined by VEC."

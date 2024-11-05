@@ -58,7 +58,8 @@
 (defcustom lua-ts-mode-hook nil
   "Hook run after entering `lua-ts-mode'."
   :type 'hook
-  :options '(flymake-mode
+  :options '(eglot-ensure
+             flymake-mode
              hs-minor-mode
              outline-minor-mode)
   :version "30.1")
@@ -116,7 +117,7 @@
 (defcustom lua-ts-indent-continuation-lines t
   "Controls how multi-line if/else statements are aligned.
 
-If t, then continuation lines are indented by `lua-ts-indent-offset':
+If non-nil, then continuation lines are indented by `lua-ts-indent-offset':
 
   if a
       and b then
@@ -675,19 +676,19 @@ Calls REPORT-FN directly."
 
 (defun lua-ts-send-buffer ()
   "Send current buffer to the inferior Lua process."
-  (interactive)
+  (interactive nil lua-ts-mode)
   (lua-ts-send-region (point-min) (point-max)))
 
 (defun lua-ts-send-file (file)
   "Send contents of FILE to the inferior Lua process."
-  (interactive "f")
+  (interactive "f" lua-ts-mode)
   (with-temp-buffer
     (insert-file-contents-literally file)
     (lua-ts-send-region (point-min) (point-max))))
 
 (defun lua-ts-send-region (beg end)
   "Send region between BEG and END to the inferior Lua process."
-  (interactive "r")
+  (interactive "r" lua-ts-mode)
   (let ((string (buffer-substring-no-properties beg end))
         (proc-buffer (lua-ts-inferior-lua)))
     (comint-send-string proc-buffer "print()") ; Prevent output from
@@ -719,14 +720,12 @@ Calls REPORT-FN directly."
               ((buffer-live-p (process-buffer process))))
     (with-current-buffer buffer (comint-write-input-ring))))
 
-(defvar lua-ts-mode-map
-  (let ((map (make-sparse-keymap "Lua")))
-    (define-key map "\C-c\C-n" 'lua-ts-inferior-lua)
-    (define-key map "\C-c\C-c" 'lua-ts-send-buffer)
-    (define-key map "\C-c\C-l" 'lua-ts-send-file)
-    (define-key map "\C-c\C-r" 'lua-ts-send-region)
-    map)
-  "Keymap for `lua-ts-mode' buffers.")
+(defvar-keymap lua-ts-mode-map
+  :doc "Keymap for `lua-ts-mode' buffers."
+  "C-c C-n" #'lua-ts-inferior-lua
+  "C-c C-c" #'lua-ts-send-buffer
+  "C-c C-l" #'lua-ts-send-file
+  "C-c C-r" #'lua-ts-send-region)
 
 (easy-menu-define lua-ts-mode-menu lua-ts-mode-map
   "Menu bar entry for `lua-ts-mode'."
@@ -751,7 +750,7 @@ Calls REPORT-FN directly."
   (use-local-map lua-ts-mode-map)
 
   (when (treesit-ready-p 'lua)
-    (treesit-parser-create 'lua)
+    (setq treesit-primary-parser (treesit-parser-create 'lua))
 
     ;; Comments.
     (setq-local comment-start "--")

@@ -20,6 +20,8 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
 ;;; Code:
 
 (require 'org-macs)
@@ -239,7 +241,7 @@ position or nil."
 	(message "Select location and press RET")
 	(use-local-map org-goto-map)
 	(unwind-protect (recursive-edit)
-          (when-let ((window (get-buffer-window "*Org Help*" t)))
+          (when-let* ((window (get-buffer-window "*Org Help*" t)))
             (quit-window 'kill window)))))
     (when (get-buffer "*org-goto*") (kill-buffer "*org-goto*"))
     (cons org-goto-selected-point org-goto-exit-command)))

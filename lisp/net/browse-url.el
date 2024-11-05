@@ -113,10 +113,10 @@
 
 ;; Use the Emacs Web Wowser (EWW) when not running under X11:
 ;;	(or (eq window-system 'x)
-;;	    (setq browse-url-browser-function #'eww-browse-url))
+;;	    (setopt browse-url-browser-function #'eww-browse-url))
 
 ;; To always save modified buffers before displaying the file in a browser:
-;;	(setq browse-url-save-file t)
+;;	(setopt browse-url-save-file t)
 
 ;; To invoke different browsers/tools for different URLs, customize
 ;; `browse-url-handlers'.  In earlier versions of Emacs, the same
@@ -419,14 +419,14 @@ value converts ange-ftp-style file names into ftp URLs and prepends
 `file:' to any file name beginning with `/'.
 
 For example, adding to the default a specific translation of an ange-ftp
-address to an HTTP URL:
+address to an HTTPS URL:
 
-    (setq browse-url-filename-alist
-	  \\='((\"/webmaster@webserver:/home/www/html/\" .
-             \"https://www.example.org/\")
-            (\"^/\\(ftp@\\|anonymous@\\)?\\([^:/]+\\):/*\" . \"ftp://\\2/\")
-            (\"^/\\([^:@/]+@\\)?\\([^:/]+\\):/*\" . \"ftp://\\1\\2/\")
-	    (\"^/+\" . \"file:/\")))"
+    (setopt browse-url-filename-alist
+            \\='((\"/webmaster@webserver:/home/www/html/\" .
+               \"https://www.example.org/\")
+              (\"^/\\(ftp@\\|anonymous@\\)?\\([^:/]+\\):/*\" . \"ftp://\\2/\")
+              (\"^/\\([^:@/]+@\\)?\\([^:/]+\\):/*\" . \"ftp://\\1\\2/\")
+              (\"^/+\" . \"file:/\")))"
   :type '(repeat (cons :format "%v"
                        (regexp :tag "Regexp")
                        (string :tag "Replacement")))
@@ -683,12 +683,13 @@ websites are increasingly rare, but they do still exist."
   :type '(choice (const :tag "HTTP" "http")
                  (const :tag "HTTPS" "https")
                  (string :tag "Something else" "https"))
+  :risky t
   :version "29.1")
 
 (defun browse-url-url-at-point ()
   (or (thing-at-point 'url t)
       ;; assume that the user is pointing at something like gnu.org/gnu
-      (when-let ((f (thing-at-point 'filename t)))
+      (when-let* ((f (thing-at-point 'filename t)))
 	(if (string-match-p browse-url-button-regexp f)
 	    f
 	  (concat browse-url-default-scheme "://" f)))))
@@ -763,7 +764,7 @@ interactively.  Turn the filename into a URL with function
 (defun browse-url-file-url (file)
   "Return the URL corresponding to FILE.
 Use variable `browse-url-filename-alist' to map filenames to URLs."
-  (when-let ((coding (browse-url--file-name-coding-system)))
+  (when-let* ((coding (browse-url--file-name-coding-system)))
     (setq file (encode-coding-string file coding)))
   (if (and (file-remote-p file)
            ;; We're applying special rules for FTP URLs for historical
@@ -1360,7 +1361,7 @@ currently selected window instead."
     (if (equal (url-type parsed) "file")
         ;; It's a file; just open it.
         (let ((file (url-unhex-string (url-filename parsed))))
-          (when-let ((coding (browse-url--file-name-coding-system)))
+          (when-let* ((coding (browse-url--file-name-coding-system)))
             (setq file (decode-coding-string file 'utf-8)))
           ;; The local-part of file: URLs on Windows is supposed to
           ;; start with an extra slash.

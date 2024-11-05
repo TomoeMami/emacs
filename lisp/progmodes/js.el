@@ -62,7 +62,6 @@
   (require 'rx))
 
 (defvar ido-cur-list)
-(defvar electric-layout-rules)
 (declare-function ido-mode "ido" (&optional arg))
 (declare-function treesit-parser-create "treesit.c")
 (declare-function treesit-induce-sparse-tree "treesit.c")
@@ -2493,7 +2492,7 @@ Returns t if successful, nil if no term was found."
       t)))
 
 (defun js--chained-expression-p ()
-  "A helper for js--proper-indentation that handles chained expressions.
+  "Helper for `js--proper-indentation' that handles chained expressions.
 A chained expression is when the current line starts with '.' and the
 previous line also has a '.' expression.
 This function returns the indentation for the current line if it is
@@ -3634,7 +3633,33 @@ Check if a node type is available, then return the right indent rules."
    :language 'javascript
    :feature 'escape-sequence
    :override t
-   '((escape_sequence) @font-lock-escape-face))
+   '((escape_sequence) @font-lock-escape-face)
+
+   ;; "document" should be first, to avoid overlap.
+   :language 'jsdoc
+   :override t
+   :feature 'document
+   '((document) @font-lock-doc-face)
+
+   :language 'jsdoc
+   :override t
+   :feature 'keyword
+   '((tag_name) @font-lock-constant-face)
+
+   :language 'jsdoc
+   :override t
+   :feature 'bracket
+   '((["{" "}"]) @font-lock-bracket-face)
+
+   :language 'jsdoc
+   :override t
+   :feature 'property
+   '((type) @font-lock-type-face)
+
+   :language 'jsdoc
+   :override t
+   :feature 'definition
+   '((identifier) @font-lock-variable-name-face))
   "Tree-sitter font-lock settings.")
 
 (defun js--fontify-template-string (node override start end &rest _)
@@ -3835,11 +3860,14 @@ See `treesit-thing-settings' for more information.")
     "array"
     "function"
     "string"
+    "template_string"
+    "template_substitution"
     "escape"
     "template"
     "regex"
     "number"
     "identifier"
+    "property_identifier"
     "this"
     "super"
     "true"
@@ -3856,6 +3884,9 @@ See `treesit-thing-settings' for more information.")
     "class_body")
   "Nodes that designate sexps in JavaScript.
 See `treesit-thing-settings' for more information.")
+
+(defvar js--treesit-jsdoc-beginning-regexp (rx bos "/**")
+  "Regular expression matching the beginning of a jsdoc block comment.")
 
 ;;;###autoload
 (define-derived-mode js-ts-mode js-base-mode "JavaScript"
@@ -3882,7 +3913,8 @@ See `treesit-thing-settings' for more information.")
     (setq-local syntax-propertize-function #'js-ts--syntax-propertize)
 
     ;; Tree-sitter setup.
-    (treesit-parser-create 'javascript)
+    (setq-local treesit-primary-parser (treesit-parser-create 'javascript))
+
     ;; Indent.
     (setq-local treesit-simple-indent-rules js--treesit-indent-rules)
     ;; Navigation.
@@ -3899,16 +3931,27 @@ See `treesit-thing-settings' for more information.")
                    (sexp ,(js--regexp-opt-symbol js--treesit-sexp-nodes))
                    (sentence ,(js--regexp-opt-symbol js--treesit-sentence-nodes))
                    (text ,(js--regexp-opt-symbol '("comment"
-                                                   "template_string"))))))
+                                                   "string_fragment"))))))
 
     ;; Fontification.
     (setq-local treesit-font-lock-settings js--treesit-font-lock-settings)
     (setq-local treesit-font-lock-feature-list
-                '(( comment definition)
+                '(( comment document definition)
                   ( keyword string)
                   ( assignment constant escape-sequence jsx number
                     pattern string-interpolation)
                   ( bracket delimiter function operator property)))
+
+    (when (treesit-ready-p 'jsdoc t)
+      (setq-local treesit-range-settings
+                  (treesit-range-rules
+                   :embed 'jsdoc
+                   :host 'javascript
+                   :local t
+                   `(((comment) @capture (:match ,js--treesit-jsdoc-beginning-regexp @capture)))))
+
+      (setq c-ts-common--comment-regexp (rx (or "comment" "line_comment" "block_comment" "description"))))
+
     ;; Imenu
     (setq-local treesit-simple-imenu-settings
                 `(("Function" "\\`function_declaration\\'" nil nil)

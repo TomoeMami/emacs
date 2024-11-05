@@ -1216,7 +1216,7 @@ The following commands are accepted by the client:
       ;; FIXME: Why do we wait 1s here but 5s in the other one?
       (run-with-timer 1 nil #'delete-process proc)
       ;; We return immediately.
-      (cl-return-from server--process-filter)))
+      (cl-return-from server--process-filter-1)))
   (let ((prev (process-get proc 'previous-string)))
     (when prev
       (setq string (concat prev string))
@@ -1904,7 +1904,7 @@ if there are no other active clients."
                    (length> server-clients 1)
                    (seq-some
                     (lambda (frame)
-                      (when-let ((p (frame-parameter frame 'client)))
+                      (when-let* ((p (frame-parameter frame 'client)))
                         (not (eq proc p))))
                     (frame-list)))
                ;; If `server-stop-automatically' is not enabled, there

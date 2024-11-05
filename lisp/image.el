@@ -638,7 +638,9 @@ IMAGE must be an image created with `create-image' or `defimage'.
 IMAGE is displayed by putting an overlay into the current buffer with a
 `before-string' STRING that has a `display' property whose value is the
 image.  STRING defaults to \"x\" if it's nil or omitted.
-The overlay created by this function has the `put-image' property set to t.
+Upon success, this function returns the created overlay with its
+`put-image' property set to t.
+
 POS may be an integer or marker.
 AREA is where to display the image.  AREA nil or omitted means
 display it in the text area, a value of `left-margin' means
@@ -813,7 +815,7 @@ string containing the actual image data.  If the property `:type TYPE'
 is omitted or nil, try to determine the image type from its first few
 bytes of image data.  If that doesn't work, and the property `:file
 FILE' provide a file name, use its file extension as indication of the
-image type. If `:type TYPE' is provided, it must match the actual type
+image type.  If `:type TYPE' is provided, it must match the actual type
 determined for FILE or DATA by `create-image'.
 
 The function returns the image specification for the first specification
@@ -1432,7 +1434,7 @@ Also return nil if rotation is not a multiples of 90 degrees (0, 90,
 Return a copy of :original-map transformed based on IMAGE's :scale,
 :rotation, and :flip.  When IMAGE's :original-map is nil, return nil.
 When :rotation is not a multiple of 90, return copy of :original-map."
-  (when-let ((map (image-property image :original-map)))
+  (when-let* ((map (image-property image :original-map)))
     (setq map (copy-tree map t))
     (let* ((size (image-size image t))
            ;; The image can be scaled for many reasons (:scale,
@@ -1467,7 +1469,7 @@ When :rotation is not a multiple of 90, return copy of :original-map."
   "Return original map for IMAGE.
 If IMAGE lacks :map property, return nil.
 When there is no transformation, return copy of :map."
-  (when-let ((original-map (image-property image :map)))
+  (when-let* ((original-map (image-property image :map)))
     (setq original-map (copy-tree original-map t))
     (let* ((size (image-size image t))
            ;; The image can be scaled for many reasons (:scale,

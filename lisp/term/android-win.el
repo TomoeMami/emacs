@@ -159,7 +159,7 @@ two markers or an overlay.  Otherwise, it is nil."
 VALUE should be something suitable for passing to
 `gui-set-selection'."
   (unless (stringp value)
-    (when-let ((bounds (android-selection-bounds value)))
+    (when-let* ((bounds (android-selection-bounds value)))
       (setq value (ignore-errors
                     (with-current-buffer (nth 2 bounds)
                       (buffer-substring (nth 0 bounds)
@@ -204,7 +204,7 @@ VALUE should be something suitable for passing to
                                               &context (window-system android))
   ;; First, try to turn value into a string.
   ;; Don't set anything if that did not work.
-  (when-let ((string (android-encode-select-string value)))
+  (when-let* ((string (android-encode-select-string value)))
     (cond ((eq type 'CLIPBOARD)
            (android-set-clipboard string))
           ((eq type 'PRIMARY)
@@ -223,7 +223,7 @@ VALUE should be something suitable for passing to
 ;; time.  This pre-command-hook clears the overlay before any command
 ;; and should be set whenever a preedit overlay is visible.
 (defun android-clear-preedit-text ()
-  "Clear the pre-edit overlay and remove itself from pre-command-hook.
+  "Clear the pre-edit overlay and remove itself from `pre-command-hook'.
 This function should be installed in `pre-command-hook' whenever
 preedit text is displayed."
   (when android-preedit-overlay
@@ -629,4 +629,4 @@ accessible to other programs."
 
 
 (provide 'android-win)
-;; android-win.el ends here.
+;;; android-win.el ends here

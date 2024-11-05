@@ -319,14 +319,13 @@ Thus, this does not include the current directory.")
 
 (defun eshell/pwd ()
   "Change output from `pwd' to be cleaner."
-  (let* ((path default-directory)
-	 (len (length path)))
-    (if (and (> len 1)
-	     (eq (aref path (1- len)) ?/)
-	     (not (and (eshell-under-windows-p)
-		       (string-match "\\`[A-Za-z]:[\\/]\\'" path))))
-	(setq path (substring path 0 (1- (length path)))))
-    (funcall (or eshell-pwd-convert-function #'identity) path)))
+  (let ((dir default-directory))
+    (when (and (eq (aref dir (1- (length dir))) ?/)
+               (not (and (eshell-under-windows-p)
+                         (string-match "\\`[A-Za-z]:[\\/]\\'" dir)))
+               (length> (file-local-name dir) 1))
+      (setq dir (substring dir 0 -1)))
+    (funcall (or eshell-pwd-convert-function #'identity) dir)))
 
 (defun eshell-expand-multiple-dots (filename)
   ;; FIXME: This advice recommendation is rather odd: it's somewhat
@@ -427,8 +426,7 @@ in the minibuffer:
           (let ((eshell-last-command-name)
                 (eshell-last-command-status)
                 (eshell-last-arguments))
-            (eshell-protect
-             (eshell-plain-command "ls" (cdr args)))))
+            (eshell-plain-command "ls" (cdr args))))
 	nil))))
 
 (put 'eshell/cd 'eshell-no-numeric-conversions t)

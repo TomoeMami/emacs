@@ -22,6 +22,8 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
 ;;; Code:
 
 (require 'org-macs)
@@ -439,7 +441,7 @@ replaced with its value."
      ("header-args"
       .
       ,(org-babel-exp--at-source
-           (when-let ((params (org-element-property :parameters (org-element-context))))
+           (when-let* ((params (org-element-property :parameters (org-element-context))))
              (concat " " params))))
      ,@(mapcar (lambda (pair)
 		 (cons (substring (symbol-name (car pair)) 1)

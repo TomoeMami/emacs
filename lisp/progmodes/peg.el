@@ -274,7 +274,7 @@
   "Actions collected along the current parse.
 Used at runtime for backtracking.  It's a list ((POS . THUNK)...).
 Each THUNK is executed at the corresponding POS.  Thunks are
-executed in a postprocessing step, not during parsing.")
+executed in a post-processing step, not during parsing.")
 
 (defvar peg--errors nil
   "Data keeping track of the rightmost parse failure location.
@@ -412,6 +412,7 @@ sequencing `and' operator of PEG grammars."
              (full-rname (format "%s %s" name rname)))
         (push `(define-peg-rule ,full-rname . ,(cdr rule)) defs)
         (push `(,(peg--rule-id rname) #',(peg--rule-id full-rname)) aliases)))
+    (require 'cl-lib)
     `(cl-flet ,aliases
        ,@defs
        (eval-and-compile (put ',name 'peg--rules ',aliases)))))
@@ -432,7 +433,8 @@ rulesets defined previously with `define-peg-ruleset'."
                               (progn (push rule rulesets) nil)
                             (cons (car rule) (peg-normalize `(and . ,(cdr rule))))))
                         rules)))
-        (ctx (assq :peg-rules macroexpand-all-environment)))
+         (ctx (assq :peg-rules macroexpand-all-environment))
+         (body
     (macroexpand-all
      `(cl-labels
           ,(mapcar (lambda (rule)
@@ -444,6 +446,15 @@ rulesets defined previously with `define-peg-ruleset'."
         ,@body)
      `((:peg-rules ,@(append rules (cdr ctx)))
        ,@macroexpand-all-environment))))
+    (if (null rulesets)
+        body
+      `(cl-flet ,(mapcan (lambda (ruleset)
+                           (let ((aliases (get ruleset 'peg--rules)))
+                             (unless aliases
+                               (message "Unknown PEG ruleset: %S" ruleset))
+                             (copy-sequence aliases)))
+                         rulesets)
+         ,body))))
 
 ;;;;; Old entry points
 
@@ -645,7 +656,7 @@ rulesets defined previously with `define-peg-ruleset'."
         (code (peg-translate-exp exp)))
     (cond
      ((null msg) code)
-     (t (macroexp-warn-and-return msg code)))))
+     (t (macroexp-warn-and-return msg code 'peg nil exp)))))
 
 ;; This is the main translation function.
 (defun peg-translate-exp (exp)
@@ -698,7 +709,7 @@ rulesets defined previously with `define-peg-ruleset'."
 (cl-defmethod peg--translate ((_ (eql guard)) exp) exp)
 
 (defvar peg-syntax-classes
-  '((whitespace ?-) (word ?w) (symbol ?s) (punctuation ?.)
+  '((whitespace ?-) (word ?w) (symbol ?_) (punctuation ?.)
     (open ?\() (close ?\)) (string ?\") (escape ?\\) (charquote ?/)
     (math ?$) (prefix ?') (comment ?<) (endcomment ?>)
     (comment-fence ?!) (string-fence ?|)))

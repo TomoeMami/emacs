@@ -805,7 +805,7 @@ to extract substrings.")
 
 (declare-function project-root "project" (project))
 (defun ffap-in-project (name)
-  (when-let (project (project-current))
+  (when-let* ((project (project-current)))
     (file-name-concat (project-root project) name)))
 
 (defun ffap-home (name) (ffap-locate-file name t '("~")))
@@ -1953,12 +1953,12 @@ Only intended for interactive use."
 ;; bindings you would prefer.
 
 (defun ffap-ro-mode-hook ()
-  "Bind `ffap-next' and `ffap-menu' to M-l and M-m, resp."
+  "Bind `ffap-next' and `ffap-menu' to \\`M-l' and \\`M-m', resp."
   (local-set-key "\M-l" 'ffap-next)
   (local-set-key "\M-m" 'ffap-menu))
 
 (defun ffap-gnus-hook ()
-  "Bind `ffap-gnus-next' and `ffap-gnus-menu' to M-l and M-m, resp."
+  "Bind `ffap-gnus-next' and `ffap-gnus-menu' to \\`M-l' and \\`M-m', resp."
   ;; message-id's
   (setq-local thing-at-point-default-mail-uri-scheme "news")
   ;; Note "l", "L", "m", "M" are taken:

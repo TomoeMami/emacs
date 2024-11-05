@@ -634,6 +634,37 @@ x_free_gc (struct frame *f, struct android_gc *gc)
 			   Frames and faces
  ***********************************************************************/
 
+#ifdef HAVE_WINDOW_SYSTEM
+
+/* Find an existing image cache registered for a frame on F's display
+   and with a `scaling_col_width' of F's FRAME_COLUMN_WIDTH, or, in the
+   absence of an eligible image cache, allocate an image cache with the
+   same width value.  */
+
+struct image_cache *
+share_image_cache (struct frame *f)
+{
+  int width = max (10, FRAME_COLUMN_WIDTH (f));
+  Lisp_Object tail, frame;
+  struct image_cache *cache;
+
+  FOR_EACH_FRAME (tail, frame)
+    {
+      struct frame *x = XFRAME (frame);
+
+      if (FRAME_TERMINAL (x) == FRAME_TERMINAL (f)
+	  && FRAME_IMAGE_CACHE (x)
+	  && FRAME_IMAGE_CACHE (x)->scaling_col_width == width)
+	return FRAME_IMAGE_CACHE (x);
+    }
+
+  cache = make_image_cache ();
+  cache->scaling_col_width = width;
+  return cache;
+}
+
+#endif /* HAVE_WINDOW_SYSTEM */
+
 /* Initialize face cache and basic faces for frame F.  */
 
 void
@@ -644,14 +675,10 @@ init_frame_faces (struct frame *f)
     FRAME_FACE_CACHE (f) = make_face_cache (f);
 
 #ifdef HAVE_WINDOW_SYSTEM
-  /* Make the image cache.  */
+  /* Make or share an image cache.  */
   if (FRAME_WINDOW_P (f))
     {
-      /* We initialize the image cache when creating the first frame
-	 on a terminal, and not during terminal creation.  This way,
-	 `x-open-connection' on a tty won't create an image cache.  */
-      if (FRAME_IMAGE_CACHE (f) == NULL)
-	FRAME_IMAGE_CACHE (f) = make_image_cache ();
+      FRAME_IMAGE_CACHE (f) = share_image_cache (f);
       ++FRAME_IMAGE_CACHE (f)->refcount;
     }
 #endif /* HAVE_WINDOW_SYSTEM */
@@ -685,6 +712,11 @@ free_frame_faces (struct frame *f)
 	  --image_cache->refcount;
 	  if (image_cache->refcount == 0)
 	    free_image_cache (f);
+
+	  /* The `image_cache' field must be emptied, in case references
+	     to this dead frame should remain and be scanned by GC.
+	     (bug#71929) */
+	  FRAME_IMAGE_CACHE (f) = NULL;
 	}
     }
 #endif /* HAVE_WINDOW_SYSTEM */
@@ -701,9 +733,18 @@ recompute_basic_faces (struct frame *f)
 {
   if (FRAME_FACE_CACHE (f))
     {
+      bool non_basic_faces_cached =
+	FRAME_FACE_CACHE (f)->used > BASIC_FACE_ID_SENTINEL;
       clear_face_cache (false);
       if (!realize_basic_faces (f))
 	emacs_abort ();
+      /* The call to realize_basic_faces above recomputed the basic
+         faces and freed their fontsets, but if there are non-ASCII
+         faces in the cache, they might now be invalid, and they
+         reference fontsets that are no longer in Vfontset_table.  We
+         therefore must force complete regeneration of all frame faces.  */
+      if (non_basic_faces_cached)
+	f->face_change = true;
     }
 }
 
@@ -2652,9 +2693,7 @@ merge_face_ref (struct window *w,
 		  Lisp_Object keyword = XCAR (face_ref_tem);
 		  Lisp_Object value = XCAR (XCDR (face_ref_tem));
 
-		  if (EQ (keyword, face_attr_sym[attr_filter])
-		      || (attr_filter == LFACE_INVERSE_INDEX
-			  && EQ (keyword, QCreverse_video)))
+		  if (EQ (keyword, face_attr_sym[attr_filter]))
 		    {
 		      attr_filter_seen = true;
 		      if (NILP (value))
@@ -2790,8 +2829,7 @@ merge_face_ref (struct window *w,
 		  else
 		    err = true;
 		}
-	      else if (EQ (keyword, QCinverse_video)
-		       || EQ (keyword, QCreverse_video))
+	      else if (EQ (keyword, QCinverse_video))
 		{
 		  if (EQ (value, Qt) || NILP (value))
 		    to[LFACE_INVERSE_INDEX] = value;
@@ -3420,8 +3458,7 @@ FRAME 0 means change the face on all frames, and change the default
       old_value = LFACE_BOX (lface);
       ASET (lface, LFACE_BOX_INDEX, value);
     }
-  else if (EQ (attr, QCinverse_video)
-	   || EQ (attr, QCreverse_video))
+  else if (EQ (attr, QCinverse_video))
     {
       if (!UNSPECIFIEDP (value)
 	  && !IGNORE_DEFFACE_P (value)
@@ -3939,8 +3976,7 @@ DEFUN ("internal-set-lisp-face-attribute-from-resource",
     value = face_boolean_x_resource_value (value, true);
   else if (EQ (attr, QCweight) || EQ (attr, QCslant) || EQ (attr, QCwidth))
     value = intern (SSDATA (value));
-  else if (EQ (attr, QCreverse_video)
-           || EQ (attr, QCinverse_video)
+  else if (EQ (attr, QCinverse_video)
            || EQ (attr, QCextend))
     value = face_boolean_x_resource_value (value, true);
   else if (EQ (attr, QCunderline)
@@ -4151,8 +4187,7 @@ frames).  If FRAME is omitted or nil, use the selected frame.  */)
     value = LFACE_STRIKE_THROUGH (lface);
   else if (EQ (keyword, QCbox))
     value = LFACE_BOX (lface);
-  else if (EQ (keyword, QCinverse_video)
-	   || EQ (keyword, QCreverse_video))
+  else if (EQ (keyword, QCinverse_video))
     value = LFACE_INVERSE (lface);
   else if (EQ (keyword, QCforeground))
     value = LFACE_FOREGROUND (lface);
@@ -4196,7 +4231,6 @@ Value is nil if ATTR doesn't have a discrete set of valid values.  */)
   if (EQ (attr, QCunderline) || EQ (attr, QCoverline)
       || EQ (attr, QCstrike_through)
       || EQ (attr, QCinverse_video)
-      || EQ (attr, QCreverse_video)
       || EQ (attr, QCextend))
     result = list2 (Qt, Qnil);
 
@@ -4572,8 +4606,8 @@ free_realized_face (struct frame *f, struct face *face)
 	  /* This function might be called with the frame's display
 	     connection deleted, in which event the callbacks below
 	     should not be executed, as they generate X requests.  */
-	  if (FRAME_X_DISPLAY (f))
-	    return;
+	  if (!FRAME_X_DISPLAY (f))
+	    goto free_face;
 #endif /* HAVE_X_WINDOWS */
 
 	  if (face->gc)
@@ -4592,6 +4626,9 @@ free_realized_face (struct frame *f, struct face *face)
 	}
 #endif /* HAVE_WINDOW_SYSTEM */
 
+#ifdef HAVE_X_WINDOWS
+    free_face:
+#endif /* HAVE_X_WINDOWS */
       xfree (face);
     }
 }
@@ -7328,7 +7365,6 @@ syms_of_xfaces (void)
   DEFSYM (QCslant, ":slant");
   DEFSYM (QCunderline, ":underline");
   DEFSYM (QCinverse_video, ":inverse-video");
-  DEFSYM (QCreverse_video, ":reverse-video");
   DEFSYM (QCforeground, ":foreground");
   DEFSYM (QCbackground, ":background");
   DEFSYM (QCstipple, ":stipple");
